@@ -2,8 +2,8 @@
  * resquery.c - Query DNS using the libc resolver API (res_ninit/res_nquery)
  *
  * Usage: resquery [-4] [-6] [-v] [--timeout N] [--attempts N] [--ndots N]
- *                 [--nameservers addr1,addr2,...] [--search dom1,dom2,...]
- *                 hostname
+ *                 [--rotate] [--nameservers addr1,addr2,...]
+ *                 [--search dom1,dom2,...] hostname
  *
  * Compile: cc -o resquery resquery.c -lresolv
  */
@@ -26,18 +26,20 @@ static struct option long_options[] = {
     {"nameservers", required_argument, NULL, 'n'},
     {"search",      required_argument, NULL, 's'},
     {"ndots",       required_argument, NULL, 'd'},
+    {"rotate",      no_argument,       NULL, 'r'},
     {"verbose",     no_argument,       NULL, 'v'},
     {NULL,          0,                 NULL,  0 }
 };
 
 static void usage(const char *prog)
 {
+    int pad = (int)strlen(prog) + 1;
     fprintf(stderr,
         "Usage: %s [-4] [-6] [-v] [--timeout N] [--attempts N]\n"
         "       %*s [--nameservers addr1,addr2,...]\n"
-        "       %*s [--search dom1,dom2,...] [--ndots N] hostname\n",
-        prog, (int)strlen(prog) + 1, "",
-        (int)strlen(prog) + 1, "");
+        "       %*s [--search dom1,dom2,...] [--ndots N] [--rotate]\n"
+        "       %*s hostname\n",
+        prog, pad, "", pad, "", pad, "");
     exit(1);
 }
 
@@ -53,6 +55,7 @@ static void print_resolver_config(struct __res_state *res)
         printf("  [%d] %s:%d\n", i, buf, ntohs(sa->sin_port));
     }
     printf("ndots:    %d\n", res->ndots);
+    printf("rotate:   %s\n", (res->options & RES_ROTATE) ? "yes" : "no");
     printf("search:");
     for (int i = 0; i < MAXDNSRCH && res->dnsrch[i]; i++)
         printf(" %s", res->dnsrch[i]);
@@ -143,6 +146,7 @@ int main(int argc, char *argv[])
     const char *nameservers = NULL;
     const char *search = NULL;
     int ndots = -1;
+    int rotate = 0;
 
     while ((opt = getopt_long(argc, argv, "46v", long_options, NULL)) != -1) {
         switch (opt) {
@@ -169,6 +173,9 @@ int main(int argc, char *argv[])
             break;
         case 'd':
             ndots = atoi(optarg);
+            break;
+        case 'r':
+            rotate = 1;
             break;
         default:
             usage(argv[0]);
@@ -201,6 +208,8 @@ int main(int argc, char *argv[])
         res.retry = attempts;
     if (ndots >= 0)
         res.ndots = ndots;
+    if (rotate)
+        res.options |= RES_ROTATE;
     if (nameservers) {
         if (parse_nameservers(&res, nameservers) < 0) {
             res_nclose(&res);
