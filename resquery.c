@@ -28,6 +28,7 @@ static struct option long_options[] = {
     {"ndots",       required_argument, NULL, 'd'},
     {"rotate",      no_argument,       NULL, 'r'},
     {"edns",        no_argument,       NULL, 'e'},
+    {"tcp",         no_argument,       NULL, 'T'},
     {"verbose",     no_argument,       NULL, 'v'},
     {NULL,          0,                 NULL,  0 }
 };
@@ -39,7 +40,7 @@ static void usage(const char *prog)
         "Usage: %s [-4] [-6] [-v] [--timeout N] [--attempts N]\n"
         "       %*s [--nameservers addr1,addr2,...]\n"
         "       %*s [--search dom1,dom2,...] [--ndots N]\n"
-        "       %*s [--rotate] [--edns]\n"
+        "       %*s [--rotate] [--edns] [--tcp]\n"
         "       %*s hostname\n",
         prog, pad, "", pad, "", pad, "", pad, "");
     exit(1);
@@ -59,6 +60,7 @@ static void print_resolver_config(struct __res_state *res)
     printf("ndots:    %d\n", res->ndots);
     printf("rotate:   %s\n", (res->options & RES_ROTATE) ? "yes" : "no");
     printf("edns0:    %s\n", (res->options & RES_USE_EDNS0) ? "yes" : "no");
+    printf("tcp:      %s\n", (res->options & RES_USEVC) ? "yes" : "no");
     printf("search:");
     for (int i = 0; i < MAXDNSRCH && res->dnsrch[i]; i++)
         printf(" %s", res->dnsrch[i]);
@@ -151,6 +153,7 @@ int main(int argc, char *argv[])
     int ndots = -1;
     int rotate = 0;
     int edns = 0;
+    int tcp = 0;
 
     while ((opt = getopt_long(argc, argv, "46v", long_options, NULL)) != -1) {
         switch (opt) {
@@ -183,6 +186,9 @@ int main(int argc, char *argv[])
             break;
         case 'e':
             edns = 1;
+            break;
+        case 'T':
+            tcp = 1;
             break;
         default:
             usage(argv[0]);
@@ -219,6 +225,8 @@ int main(int argc, char *argv[])
         res.options |= RES_ROTATE;
     if (edns)
         res.options |= RES_USE_EDNS0;
+    if (tcp)
+        res.options |= RES_USEVC;
     if (nameservers) {
         if (parse_nameservers(&res, nameservers) < 0) {
             res_nclose(&res);
