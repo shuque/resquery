@@ -2,7 +2,8 @@
  * resquery.c - Query DNS using the libc resolver API (res_ninit/res_nquery)
  *
  * Usage: resquery [-4] [-6] [-v] [--timeout N] [--attempts N]
- *                 [--nameservers addr1,addr2,...] hostname
+ *                 [--nameservers addr1,addr2,...] [--search dom1,dom2,...]
+ *                 hostname
  *
  * Compile: cc -o resquery resquery.c -lresolv
  */
@@ -23,6 +24,7 @@ static struct option long_options[] = {
     {"timeout",     required_argument, NULL, 't'},
     {"attempts",    required_argument, NULL, 'a'},
     {"nameservers", required_argument, NULL, 'n'},
+    {"search",      required_argument, NULL, 's'},
     {"verbose",     no_argument,       NULL, 'v'},
     {NULL,          0,                 NULL,  0 }
 };
@@ -31,8 +33,10 @@ static void usage(const char *prog)
 {
     fprintf(stderr,
         "Usage: %s [-4] [-6] [-v] [--timeout N] [--attempts N]\n"
-        "       %*s [--nameservers addr1,addr2,...] hostname\n",
-        prog, (int)strlen(prog) + 1, "");
+        "       %*s [--nameservers addr1,addr2,...]\n"
+        "       %*s [--search dom1,dom2,...] hostname\n",
+        prog, (int)strlen(prog) + 1, "",
+        (int)strlen(prog) + 1, "");
     exit(1);
 }
 
@@ -47,7 +51,10 @@ static void print_resolver_config(struct __res_state *res)
         inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf));
         printf("  [%d] %s:%d\n", i, buf, ntohs(sa->sin_port));
     }
-    printf("\n");
+    printf("search:");
+    for (int i = 0; i < MAXDNSRCH && res->dnsrch[i]; i++)
+        printf(" %s", res->dnsrch[i]);
+    printf("\n\n");
 }
 
 static int parse_nameservers(struct __res_state *res, const char *arg)
@@ -132,6 +139,7 @@ int main(int argc, char *argv[])
     int timeout = -1;
     int attempts = -1;
     const char *nameservers = NULL;
+    const char *search = NULL;
 
     while ((opt = getopt_long(argc, argv, "46v", long_options, NULL)) != -1) {
         switch (opt) {
@@ -152,6 +160,9 @@ int main(int argc, char *argv[])
             break;
         case 'n':
             nameservers = optarg;
+            break;
+        case 's':
+            search = optarg;
             break;
         default:
             usage(argv[0]);
@@ -186,6 +197,23 @@ int main(int argc, char *argv[])
         if (parse_nameservers(&res, nameservers) < 0) {
             res_nclose(&res);
             return 1;
+        }
+    }
+    if (search) {
+        /* Clear existing search list and set from comma-separated arg */
+        for (int i = 0; i < MAXDNSRCH; i++)
+            res.dnsrch[i] = NULL;
+        res.defdname[0] = '\0';
+        strncpy(res.defdname, search, sizeof(res.defdname) - 1);
+        res.defdname[sizeof(res.defdname) - 1] = '\0';
+        int idx = 0;
+        char *p = res.defdname;
+        while (*p && idx < MAXDNSRCH) {
+            while (*p == ' ' || *p == ',') p++;
+            if (*p == '\0') break;
+            res.dnsrch[idx++] = p;
+            while (*p && *p != ',' && *p != ' ') p++;
+            if (*p) *p++ = '\0';
         }
     }
 
