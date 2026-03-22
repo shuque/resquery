@@ -257,24 +257,24 @@ int main(int argc, char *argv[])
     unsigned char answer[4096];
     int len;
 
-    if (query_v4) {
-        len = res_nsearch(&res, hostname, ns_c_in, ns_t_a,
-                         answer, sizeof(answer));
-        if (len < 0) {
-            if (verbose)
-                fprintf(stderr, "A query failed for %s: %s\n",
-                        hostname, hstrerror(h_errno));
-        } else {
-            parse_and_print(answer, len);
-        }
-    }
-
     if (query_v6) {
         len = res_nsearch(&res, hostname, ns_c_in, ns_t_aaaa,
                          answer, sizeof(answer));
         if (len < 0) {
             if (verbose)
                 fprintf(stderr, "AAAA query failed for %s: %s\n",
+                        hostname, hstrerror(h_errno));
+        } else {
+            parse_and_print(answer, len);
+        }
+    }
+
+    if (query_v4) {
+        len = res_nsearch(&res, hostname, ns_c_in, ns_t_a,
+                         answer, sizeof(answer));
+        if (len < 0) {
+            if (verbose)
+                fprintf(stderr, "A query failed for %s: %s\n",
                         hostname, hstrerror(h_errno));
         } else {
             parse_and_print(answer, len);
