@@ -144,7 +144,7 @@ static void parse_and_print(const unsigned char *answer, int anslen)
 }
 
 static void do_query(struct __res_state *res, const char *hostname,
-                     int rrtype, const char *rrname, int verbose,
+                     int rrtype, const char *rrtype_string, int verbose,
                      int check_ad, int secureonly)
 {
     unsigned char answer[4096];
@@ -155,18 +155,18 @@ static void do_query(struct __res_state *res, const char *hostname,
     if (len < 0) {
         if (verbose)
             fprintf(stderr, "# %s query failed for %s: %s\n",
-                    rrname, hostname, hstrerror(h_errno));
+                    rrtype_string, hostname, hstrerror(h_errno));
         return;
     }
 
     HEADER *hp = (HEADER *)answer;
     if (verbose && check_ad)
         printf("# %s response: AD=%d (%s)\n",
-               rrname, hp->ad, hp->ad ? "secure" : "insecure");
+               rrtype_string, hp->ad, hp->ad ? "secure" : "insecure");
     if (secureonly && !hp->ad) {
         if (verbose)
             fprintf(stderr, "# %s response for %s is insecure, "
-                    "discarding\n", rrname, hostname);
+                    "discarding\n", rrtype_string, hostname);
     } else {
         parse_and_print(answer, len);
     }
