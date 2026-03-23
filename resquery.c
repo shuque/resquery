@@ -143,6 +143,35 @@ static void parse_and_print(const unsigned char *answer, int anslen)
     }
 }
 
+static void do_query(struct __res_state *res, const char *hostname,
+                     int rrtype, const char *rrname, int verbose,
+                     int check_ad, int secureonly)
+{
+    unsigned char answer[4096];
+    int len;
+
+    len = res_nsearch(res, hostname, ns_c_in, rrtype,
+                      answer, sizeof(answer));
+    if (len < 0) {
+        if (verbose)
+            fprintf(stderr, "# %s query failed for %s: %s\n",
+                    rrname, hostname, hstrerror(h_errno));
+        return;
+    }
+
+    HEADER *hp = (HEADER *)answer;
+    if (verbose && check_ad)
+        printf("# %s response: AD=%d (%s)\n",
+               rrname, hp->ad, hp->ad ? "secure" : "insecure");
+    if (secureonly && !hp->ad) {
+        if (verbose)
+            fprintf(stderr, "# %s response for %s is insecure, "
+                    "discarding\n", rrname, hostname);
+    } else {
+        parse_and_print(answer, len);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     int opt;
@@ -275,53 +304,14 @@ int main(int argc, char *argv[])
     if (verbose)
         print_resolver_config(&res);
 
-    unsigned char answer[4096];
-    int len;
     int check_ad = dnssec || trustad;
 
-    if (query_v6) {
-        len = res_nsearch(&res, hostname, ns_c_in, ns_t_aaaa,
-                         answer, sizeof(answer));
-        if (len < 0) {
-            if (verbose)
-                fprintf(stderr, "# AAAA query failed for %s: %s\n",
-                        hostname, hstrerror(h_errno));
-        } else {
-            HEADER *hp = (HEADER *)answer;
-            if (verbose && check_ad)
-                printf("# AAAA response: AD=%d (%s)\n",
-                       hp->ad, hp->ad ? "secure" : "insecure");
-            if (secureonly && !hp->ad) {
-                if (verbose)
-                    fprintf(stderr, "# AAAA response for %s is insecure, "
-                            "discarding\n", hostname);
-            } else {
-                parse_and_print(answer, len);
-            }
-        }
-    }
-
-    if (query_v4) {
-        len = res_nsearch(&res, hostname, ns_c_in, ns_t_a,
-                         answer, sizeof(answer));
-        if (len < 0) {
-            if (verbose)
-                fprintf(stderr, "# A query failed for %s: %s\n",
-                        hostname, hstrerror(h_errno));
-        } else {
-            HEADER *hp = (HEADER *)answer;
-            if (verbose && check_ad)
-                printf("# A response: AD=%d (%s)\n",
-                       hp->ad, hp->ad ? "secure" : "insecure");
-            if (secureonly && !hp->ad) {
-                if (verbose)
-                    fprintf(stderr, "# A response for %s is insecure, "
-                            "discarding\n", hostname);
-            } else {
-                parse_and_print(answer, len);
-            }
-        }
-    }
+    if (query_v6)
+        do_query(&res, hostname, ns_t_aaaa, "AAAA", verbose, check_ad,
+                 secureonly);
+    if (query_v4)
+        do_query(&res, hostname, ns_t_a, "A", verbose, check_ad,
+                 secureonly);
 
     res_nclose(&res);
     return 0;
