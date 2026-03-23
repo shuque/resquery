@@ -2,7 +2,7 @@
 
 A command-line DNS lookup tool that uses the libc resolver API directly
 (`res_ninit`, `res_nsearch`, `res_nclose`), providing full programmatic
-control over resolver behavior.
+control over resolver behavior. Tested on Linux with glibc.
 
 Unlike `getaddrinfo()`, which is subject to nsswitch.conf, NSS modules,
 and system daemons like systemd-resolved or sssd, resquery talks directly
@@ -21,10 +21,6 @@ Or manually:
 ```sh
 cc -Wall -Wextra -o resquery resquery.c -lresolv
 ```
-
-Requires a system with glibc (Linux). The resolver API used
-(`res_ninit`/`res_nsearch`) and the `__res_state` structure are
-glibc-specific.
 
 ## Usage
 
