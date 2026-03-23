@@ -57,16 +57,23 @@ static void print_resolver_config(struct __res_state *res)
         inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf));
         printf("#   [%d] %s:%d\n", i, buf, ntohs(sa->sin_port));
     }
+    printf("# search:");
+    for (int i = 0; i < MAXDNSRCH && res->dnsrch[i]; i++)
+        printf(" %s", res->dnsrch[i]);
+    printf("\n");
     printf("# ndots:    %d\n", res->ndots);
     printf("# rotate:   %s\n", (res->options & RES_ROTATE) ? "yes" : "no");
     printf("# edns0:    %s\n", (res->options & RES_USE_EDNS0) ? "yes" : "no");
     printf("# tcp:      %s\n", (res->options & RES_USEVC) ? "yes" : "no");
+    printf("# recurse:  %s\n", (res->options & RES_RECURSE) ? "yes" : "no");
+    printf("# stayopen: %s\n", (res->options & RES_STAYOPEN) ? "yes" : "no");
+    printf("# defnames: %s\n", (res->options & RES_DEFNAMES) ? "yes" : "no");
+    printf("# dnsrch:   %s\n", (res->options & RES_DNSRCH) ? "yes" : "no");
+    printf("# snglkup:  %s\n", (res->options & RES_SNGLKUP) ? "yes" : "no");
+    printf("# snglkupreop: %s\n", (res->options & RES_SNGLKUPREOP) ? "yes" : "no");
     printf("# dnssec:   %s\n", (res->options & RES_USE_DNSSEC) ? "yes" : "no");
     printf("# trustad:  %s\n", (res->options & RES_TRUSTAD) ? "yes" : "no");
-    printf("# search:");
-    for (int i = 0; i < MAXDNSRCH && res->dnsrch[i]; i++)
-        printf(" %s", res->dnsrch[i]);
-    printf("\n\n");
+    printf("\n");
 }
 
 static int parse_nameservers(struct __res_state *res, const char *arg)
