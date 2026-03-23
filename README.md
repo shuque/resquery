@@ -96,6 +96,14 @@ making it easy to filter them out:
 
 ## Limitations
 
+- The EDNS0 buffer size advertised in queries is not configurable through
+  the glibc resolver API. It is hardcoded as `RESOLV_EDNS_BUFFER_SIZE`
+  (1200 bytes) in glibc's internal header `resolv-internal.h`. The value
+  is derived from the IPv6 minimum MTU (1280 bytes) minus overhead for
+  tunneling, chosen to avoid UDP fragmentation. The internal function
+  `__res_nopt()` that constructs the OPT record accepts a buffer size
+  parameter, but the callers in `res_query.c` always clamp it to the
+  hardcoded value. There is no field in `__res_state` to override this.
 - Only IPv4 nameserver addresses are supported in `--nameservers`.
   IPv6 nameservers require the extended address list in `__res_state`,
   which is more complex to configure portably.
