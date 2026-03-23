@@ -1,10 +1,6 @@
 /*
  * resquery.c - Query DNS using the libc resolver API (res_ninit/res_nsearch)
  *
- * Usage: resquery [-4] [-6] [-v] [--timeout N] [--attempts N] [--ndots N]
- *                 [--rotate] [--nameservers addr1,addr2,...]
- *                 [--search dom1,dom2,...] hostname
- *
  * Compile: cc -o resquery resquery.c -lresolv
  */
 
@@ -31,6 +27,7 @@ static struct option long_options[] = {
     {"tcp",         no_argument,       NULL, 'T'},
     {"dnssec",      no_argument,       NULL, 'D'},
     {"trustad",     no_argument,       NULL, 'A'},
+    {"secureonly",  no_argument,       NULL, 'S'},
     {"verbose",     no_argument,       NULL, 'v'},
     {NULL,          0,                 NULL,  0 }
 };
@@ -43,7 +40,7 @@ static void usage(const char *prog)
         "       %*s [--nameservers addr1,addr2,...]\n"
         "       %*s [--search dom1,dom2,...] [--ndots N]\n"
         "       %*s [--rotate] [--edns] [--tcp]\n"
-        "       %*s [--dnssec] [--trustad]\n"
+        "       %*s [--dnssec] [--trustad] [--secureonly]\n"
         "       %*s hostname\n",
         prog, pad, "", pad, "", pad, "", pad, "", pad, "");
     exit(1);
@@ -51,22 +48,22 @@ static void usage(const char *prog)
 
 static void print_resolver_config(struct __res_state *res)
 {
-    printf("timeout:  %d seconds\n", res->retrans);
-    printf("attempts: %d\n", res->retry);
-    printf("nameservers: %d\n", res->nscount);
+    printf("# timeout:  %d seconds\n", res->retrans);
+    printf("# attempts: %d\n", res->retry);
+    printf("# nameservers: %d\n", res->nscount);
     for (int i = 0; i < res->nscount; i++) {
         char buf[INET6_ADDRSTRLEN];
         struct sockaddr_in *sa = &res->nsaddr_list[i];
         inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf));
-        printf("  [%d] %s:%d\n", i, buf, ntohs(sa->sin_port));
+        printf("#   [%d] %s:%d\n", i, buf, ntohs(sa->sin_port));
     }
-    printf("ndots:    %d\n", res->ndots);
-    printf("rotate:   %s\n", (res->options & RES_ROTATE) ? "yes" : "no");
-    printf("edns0:    %s\n", (res->options & RES_USE_EDNS0) ? "yes" : "no");
-    printf("tcp:      %s\n", (res->options & RES_USEVC) ? "yes" : "no");
-    printf("dnssec:   %s\n", (res->options & RES_USE_DNSSEC) ? "yes" : "no");
-    printf("trustad:  %s\n", (res->options & RES_TRUSTAD) ? "yes" : "no");
-    printf("search:");
+    printf("# ndots:    %d\n", res->ndots);
+    printf("# rotate:   %s\n", (res->options & RES_ROTATE) ? "yes" : "no");
+    printf("# edns0:    %s\n", (res->options & RES_USE_EDNS0) ? "yes" : "no");
+    printf("# tcp:      %s\n", (res->options & RES_USEVC) ? "yes" : "no");
+    printf("# dnssec:   %s\n", (res->options & RES_USE_DNSSEC) ? "yes" : "no");
+    printf("# trustad:  %s\n", (res->options & RES_TRUSTAD) ? "yes" : "no");
+    printf("# search:");
     for (int i = 0; i < MAXDNSRCH && res->dnsrch[i]; i++)
         printf(" %s", res->dnsrch[i]);
     printf("\n\n");
@@ -161,6 +158,7 @@ int main(int argc, char *argv[])
     int tcp = 0;
     int dnssec = 0;
     int trustad = 0;
+    int secureonly = 0;
 
     while ((opt = getopt_long(argc, argv, "46v", long_options, NULL)) != -1) {
         switch (opt) {
@@ -203,10 +201,16 @@ int main(int argc, char *argv[])
         case 'A':
             trustad = 1;
             break;
+        case 'S':
+            secureonly = 1;
+            break;
         default:
             usage(argv[0]);
         }
     }
+
+    if (secureonly && !trustad)
+        trustad = 1;
 
     if (optind >= argc)
         usage(argv[0]);
@@ -273,16 +277,27 @@ int main(int argc, char *argv[])
 
     unsigned char answer[4096];
     int len;
+    int check_ad = dnssec || trustad;
 
     if (query_v6) {
         len = res_nsearch(&res, hostname, ns_c_in, ns_t_aaaa,
                          answer, sizeof(answer));
         if (len < 0) {
             if (verbose)
-                fprintf(stderr, "AAAA query failed for %s: %s\n",
+                fprintf(stderr, "# AAAA query failed for %s: %s\n",
                         hostname, hstrerror(h_errno));
         } else {
-            parse_and_print(answer, len);
+            HEADER *hp = (HEADER *)answer;
+            if (verbose && check_ad)
+                printf("# AAAA response: AD=%d (%s)\n",
+                       hp->ad, hp->ad ? "secure" : "insecure");
+            if (secureonly && !hp->ad) {
+                if (verbose)
+                    fprintf(stderr, "# AAAA response for %s is insecure, "
+                            "discarding\n", hostname);
+            } else {
+                parse_and_print(answer, len);
+            }
         }
     }
 
@@ -291,10 +306,20 @@ int main(int argc, char *argv[])
                          answer, sizeof(answer));
         if (len < 0) {
             if (verbose)
-                fprintf(stderr, "A query failed for %s: %s\n",
+                fprintf(stderr, "# A query failed for %s: %s\n",
                         hostname, hstrerror(h_errno));
         } else {
-            parse_and_print(answer, len);
+            HEADER *hp = (HEADER *)answer;
+            if (verbose && check_ad)
+                printf("# A response: AD=%d (%s)\n",
+                       hp->ad, hp->ad ? "secure" : "insecure");
+            if (secureonly && !hp->ad) {
+                if (verbose)
+                    fprintf(stderr, "# A response for %s is insecure, "
+                            "discarding\n", hostname);
+            } else {
+                parse_and_print(answer, len);
+            }
         }
     }
 
