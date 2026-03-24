@@ -15,6 +15,7 @@
 #include <resolv.h>
 
 #define MAX_NAMESERVERS 8
+#define VERSION "0.0.1"
 
 static struct option long_options[] = {
     {"timeout",     required_argument, NULL, 't'},
@@ -29,21 +30,52 @@ static struct option long_options[] = {
     {"trustad",     no_argument,       NULL, 'A'},
     {"secureonly",  no_argument,       NULL, 'S'},
     {"verbose",     no_argument,       NULL, 'v'},
+    {"help",        no_argument,       NULL, 'h'},
     {NULL,          0,                 NULL,  0 }
 };
 
-static void usage(const char *prog)
+static void print_usage(FILE *fp, const char *prog)
 {
     int pad = (int)strlen(prog) + 1;
-    fprintf(stderr,
-        "Usage: %s [-4] [-6] [-v] [--timeout N] [--attempts N]\n"
+    fprintf(fp,
+        "Usage: %s [-4] [-6] [-v] [-h] [--timeout N] [--attempts N]\n"
         "       %*s [--nameservers addr1,addr2,...]\n"
         "       %*s [--search dom1,dom2,...] [--ndots N]\n"
         "       %*s [--rotate] [--edns] [--tcp]\n"
         "       %*s [--dnssec] [--trustad] [--secureonly]\n"
         "       %*s hostname\n",
         prog, pad, "", pad, "", pad, "", pad, "", pad, "");
+}
+
+static void usage(const char *prog)
+{
+    print_usage(stderr, prog);
     exit(1);
+}
+
+static void help(const char *prog)
+{
+    printf("resquery %s\n", VERSION);
+    print_usage(stdout, prog);
+    printf(
+        "\n"
+        "Options:\n"
+        "  -4                  Query for A records only (IPv4)\n"
+        "  -6                  Query for AAAA records only (IPv6)\n"
+        "  -v, --verbose       Display resolver configuration and diagnostics\n"
+        "  -h, --help          Show this help message\n"
+        "  --timeout N         Per-nameserver timeout in seconds\n"
+        "  --attempts N        Number of rounds through the nameserver list\n"
+        "  --nameservers list  Comma-separated nameserver IPv4 addresses\n"
+        "  --search list       Comma-separated search domain list\n"
+        "  --ndots N           Dots threshold for absolute vs. search lookup\n"
+        "  --rotate            Round-robin through nameservers\n"
+        "  --edns              Enable EDNS0\n"
+        "  --tcp               Force queries over TCP\n"
+        "  --dnssec            Set the DNSSEC OK (DO) bit in queries\n"
+        "  --trustad           Set the AD (Authenticated Data) bit in queries\n"
+        "  --secureonly        Only accept responses with AD=1 (implies --trustad)\n");
+    exit(0);
 }
 
 static void print_resolver_config(struct __res_state *res)
@@ -196,7 +228,7 @@ int main(int argc, char *argv[])
     int trustad = 0;
     int secureonly = 0;
 
-    while ((opt = getopt_long(argc, argv, "46v", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "46vh", long_options, NULL)) != -1) {
         switch (opt) {
         case '4':
             query_v4 = 1;
@@ -239,6 +271,9 @@ int main(int argc, char *argv[])
             break;
         case 'S':
             secureonly = 1;
+            break;
+        case 'h':
+            help(argv[0]);
             break;
         default:
             usage(argv[0]);
