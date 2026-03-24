@@ -199,9 +199,12 @@ static void do_query(struct __res_state *res, const char *hostname,
     }
 
     HEADER *hp = (HEADER *)answer;
-    if (verbose && check_ad)
-        printf("# %s response: AD=%d (%s)\n",
-               rrtype_string, hp->ad, hp->ad ? "secure" : "insecure");
+    if (verbose) {
+        printf("# %s response:", rrtype_string);
+        if (check_ad)
+            printf(" AD=%d (%s)", hp->ad, hp->ad ? "secure" : "insecure");
+        printf("\n");
+    }
     if (secureonly && !hp->ad) {
         if (verbose)
             fprintf(stderr, "# %s response for %s is insecure, "
