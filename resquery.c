@@ -192,6 +192,11 @@ static void do_query(struct __res_state *res, const char *hostname,
     len = res_nsearch(res, hostname, ns_c_in, rrtype,
                       answer, sizeof(answer));
     if (len < 0) {
+        /* Note: the answer buffer is unreliable here because
+           res_nsearch() overwrites it with each query during
+           search list iteration. So, we only use h_errno
+           instead, which is correctly restored from the
+           originally relevant query. */
         if (verbose)
             fprintf(stderr, "# %s query failed for %s: %s\n",
                     rrtype_string, hostname, hstrerror(h_errno));
