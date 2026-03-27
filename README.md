@@ -2,7 +2,8 @@
 
 A command-line DNS lookup tool that uses the libc resolver API directly
 (`res_ninit`, `res_nsearch`, `res_nclose`), providing full programmatic
-control over resolver behavior. Tested on Linux with glibc.
+control over stub resolver behavior without needing to update the stub
+resolver configuration in /etc/resolv.conf. Tested on Linux with glibc.
 
 Unlike `getaddrinfo()`, which is subject to nsswitch.conf, NSS modules,
 and system daemons like systemd-resolved or sssd, resquery talks directly
@@ -30,7 +31,7 @@ resquery [-4] [-6] [-v] [--timeout N] [--attempts N]
          [--search dom1,dom2,...] [--ndots N]
          [--rotate] [--edns] [--tcp]
          [--dnssec] [--trustad] [--secureonly]
-         hostname
+         [--debug] hostname
 ```
 
 ## Options
@@ -51,6 +52,7 @@ resquery [-4] [-6] [-v] [--timeout N] [--attempts N]
 | `--dnssec` | Set the DNSSEC OK (DO) bit in queries (`RES_USE_DNSSEC`) |
 | `--trustad` | Set the AD (Authenticated Data) bit in queries (`RES_TRUSTAD`) |
 | `--secureonly` | Only accept responses with AD=1; implies `--trustad` |
+| `--debug` | Show each query issued during search list processing; implies `-v` |
 
 By default (without `-4` or `-6`), both AAAA and A queries are performed,
 with AAAA first.
@@ -78,6 +80,9 @@ with AAAA first.
 
 # Force TCP, enable EDNS0
 ./resquery --tcp --edns www.example.com
+
+# Debug search list processing
+./resquery --debug --search example.com,test.org myhost
 ```
 
 ## Output
@@ -88,6 +93,38 @@ making it easy to filter them out:
 
 ```sh
 ./resquery -v www.example.com | grep -v '^#'
+```
+
+## Debug Mode
+
+The original BIND resolver library supported a `RES_DEBUG` flag (`options
+debug` in resolv.conf) that caused the resolver to log detailed information
+about each query sent and response received. However, glibc has disabled
+`RES_DEBUG` — setting it has no effect. This makes it difficult to observe
+what queries the resolver actually issues during search list processing.
+
+The `--debug` option provides an alternative. It uses a local
+reimplementation of `res_nsearch()` called `res_nsearch_debug()` that calls `res_nquery()` for each
+individual DNS query and prints the query name, type, and reason to stderr.
+This shows the complete sequence of queries issued during search list
+processing, including:
+
+- Whether the name is tried as-is first (based on `ndots`)
+- Each search domain appended to the name
+- Whether the as-is query is a first attempt or a last-resort fallback
+
+Without `--debug`, resquery calls the real `res_nsearch()` from libresolv,
+guaranteeing identical behavior to the system resolver library. The debug
+mode is intended only for understanding and verifying search list behavior.
+
+Example output:
+
+```
+$ ./resquery -4 --debug --search example.com,test.org myhost
+# debug: query myhost.example.com A (search: +example.com)
+# debug: query myhost.test.org A (search: +test.org)
+# debug: query myhost A (as-is, last resort)
+# A query failed for myhost: Host name lookup failure
 ```
 
 ## Limitations

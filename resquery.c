@@ -29,6 +29,7 @@ static struct option long_options[] = {
     {"dnssec",      no_argument,       NULL, 'D'},
     {"trustad",     no_argument,       NULL, 'A'},
     {"secureonly",  no_argument,       NULL, 'S'},
+    {"debug",       no_argument,       NULL, 'g'},
     {"verbose",     no_argument,       NULL, 'v'},
     {"help",        no_argument,       NULL, 'h'},
     {NULL,          0,                 NULL,  0 }
@@ -43,7 +44,7 @@ static void print_usage(FILE *fp, const char *prog)
         "       %*s [--search dom1,dom2,...] [--ndots N]\n"
         "       %*s [--rotate] [--edns] [--tcp]\n"
         "       %*s [--dnssec] [--trustad] [--secureonly]\n"
-        "       %*s hostname\n",
+        "       %*s [--debug] hostname\n",
         prog, pad, "", pad, "", pad, "", pad, "", pad, "");
 }
 
@@ -74,7 +75,8 @@ static void help(const char *prog)
         "  --tcp               Force queries over TCP\n"
         "  --dnssec            Set the DNSSEC OK (DO) bit in queries\n"
         "  --trustad           Set the AD (Authenticated Data) bit in queries\n"
-        "  --secureonly        Only accept responses with AD=1 (implies --trustad)\n");
+        "  --secureonly        Only accept responses with AD=1 (implies --trustad)\n"
+        "  --debug             Show each query issued during search (implies -v)\n");
     exit(0);
 }
 
@@ -182,15 +184,116 @@ static void parse_and_print(const unsigned char *answer, int anslen)
     }
 }
 
+static int count_dots(const char *name)
+{
+    int dots = 0;
+    for (const char *p = name; *p; p++)
+        if (*p == '.')
+            dots++;
+    return dots;
+}
+
+/*
+ * Local reimplementation of res_nsearch() that prints each query
+ * issued during search list processing. This is intended for
+ * debugging only; the normal code path uses the real res_nsearch()
+ * from libresolv to guarantee identical behavior to the system.
+ *
+ * Search logic (matching glibc behavior):
+ *   - If name ends with '.', query as-is (absolute) and return.
+ *   - If dots in name >= ndots, try as-is first.
+ *   - Try each domain in the search list.
+ *   - If dots in name >= ndots and search list failed, use the
+ *     as-is result. Otherwise try as-is as a last resort.
+ *   - h_errno is set from the most relevant failure.
+ */
+static int res_nsearch_debug(struct __res_state *res, const char *name,
+                          int class, int type, const char *type_string,
+                          unsigned char *answer, int anslen)
+{
+    char qname[NS_MAXDNAME];
+    int len;
+    int dots = count_dots(name);
+    int trailing_dot = (name[0] != '\0' && name[strlen(name) - 1] == '.');
+    int tried_as_is = 0;
+    int saved_herrno = -1;
+    int got_nodata = 0;
+
+    /* Trailing dot: treat as absolute, no search */
+    if (trailing_dot) {
+        fprintf(stderr, "# debug: query %s %s (absolute, trailing dot)\n",
+                name, type_string);
+        return res_nquery(res, name, class, type, answer, anslen);
+    }
+
+    /* If name has enough dots, try as-is first */
+    if (dots >= res->ndots) {
+        fprintf(stderr, "# debug: query %s %s (as-is, dots=%d >= ndots=%d)\n",
+                name, type_string, dots, res->ndots);
+        len = res_nquery(res, name, class, type, answer, anslen);
+        if (len >= 0)
+            return len;
+        tried_as_is = 1;
+        saved_herrno = h_errno;
+        if (h_errno == NO_DATA)
+            got_nodata = 1;
+        /* If name has a dot and we got an authoritative NXDOMAIN,
+           don't bother with the search list */
+        if (dots > 0 && h_errno == HOST_NOT_FOUND)
+            return -1;
+    }
+
+    /* Try appending each search domain */
+    if (res->options & RES_DNSRCH) {
+        for (int i = 0; i < MAXDNSRCH && res->dnsrch[i]; i++) {
+            int n = snprintf(qname, sizeof(qname), "%s.%s",
+                             name, res->dnsrch[i]);
+            if (n < 0 || (size_t)n >= sizeof(qname))
+                continue;
+            fprintf(stderr, "# debug: query %s %s (search: +%s)\n",
+                    qname, type_string, res->dnsrch[i]);
+            len = res_nquery(res, qname, class, type, answer, anslen);
+            if (len >= 0)
+                return len;
+            if (h_errno == NO_DATA)
+                got_nodata = 1;
+            /* Stop searching on authoritative NXDOMAIN only if
+               the search domain itself could be valid */
+        }
+    }
+
+    /* If we haven't tried as-is yet, try now as last resort */
+    if (!tried_as_is) {
+        fprintf(stderr, "# debug: query %s %s (as-is, last resort)\n",
+                name, type_string);
+        len = res_nquery(res, name, class, type, answer, anslen);
+        if (len >= 0)
+            return len;
+    } else {
+        /* Restore h_errno from the as-is query */
+        h_errno = saved_herrno;
+    }
+
+    /* If any query got NODATA, prefer that over HOST_NOT_FOUND */
+    if (got_nodata)
+        h_errno = NO_DATA;
+
+    return -1;
+}
+
 static void do_query(struct __res_state *res, const char *hostname,
                      int rrtype, const char *rrtype_string, int verbose,
-                     int check_ad, int secureonly)
+                     int debug, int check_ad, int secureonly)
 {
     unsigned char answer[4096];
     int len;
 
-    len = res_nsearch(res, hostname, ns_c_in, rrtype,
-                      answer, sizeof(answer));
+    if (debug)
+        len = res_nsearch_debug(res, hostname, ns_c_in, rrtype,
+                             rrtype_string, answer, sizeof(answer));
+    else
+        len = res_nsearch(res, hostname, ns_c_in, rrtype,
+                          answer, sizeof(answer));
     if (len < 0) {
         /* Note: the answer buffer is unreliable here because
            res_nsearch() overwrites it with each query during
@@ -223,7 +326,7 @@ int main(int argc, char *argv[])
 {
     int opt;
     int query_v4 = 0, query_v6 = 0;
-    int verbose = 0;
+    int verbose = 0, debug = 0;
     int timeout = -1;
     int attempts = -1;
     const char *nameservers = NULL;
@@ -280,6 +383,9 @@ int main(int argc, char *argv[])
         case 'S':
             secureonly = 1;
             break;
+        case 'g':
+            debug = 1;
+            break;
         case 'h':
             help(argv[0]);
             break;
@@ -290,6 +396,8 @@ int main(int argc, char *argv[])
 
     if (secureonly && !trustad)
         trustad = 1;
+    if (debug && !verbose)
+        verbose = 1;
 
     if (optind >= argc)
         usage(argv[0]);
@@ -357,11 +465,11 @@ int main(int argc, char *argv[])
     int check_ad = dnssec || trustad;
 
     if (query_v6)
-        do_query(&res, hostname, ns_t_aaaa, "AAAA", verbose, check_ad,
-                 secureonly);
+        do_query(&res, hostname, ns_t_aaaa, "AAAA", verbose, debug,
+                 check_ad, secureonly);
     if (query_v4)
-        do_query(&res, hostname, ns_t_a, "A", verbose, check_ad,
-                 secureonly);
+        do_query(&res, hostname, ns_t_a, "A", verbose, debug,
+                 check_ad, secureonly);
 
     res_nclose(&res);
     return 0;
